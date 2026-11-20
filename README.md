@@ -10,49 +10,58 @@ team member → their Claude → this server (Cloudflare Workers) → Notion API
 - **One link for the whole team:** paste it into Claude (or any MCP client) and start working. No accounts, no personal keys, no roles: everyone with the link can do everything.
 - **Always up to date:** the workspace map (pages, databases, columns, option names) is read live from Notion.
 - **Accountability:** every write is logged to a Notion database.
+- **Automations:** daily digest to Discord/Telegram, automatic weekly meeting pages, GitHub pull requests → task status, and a nightly backup to a private repo.
 
 ---
 
 ## Setup (once, about 20 minutes)
 
-You need [Node.js](https://nodejs.org) 20+ and a free [Cloudflare](https://dash.cloudflare.com/sign-up) account.
+Deployment runs from GitHub Actions: every push to `main` runs the tests and deploys to Cloudflare. You only need to set secrets.
 
-### 1. Create an internal connection in Notion
+### 1. Notion: create an internal connection
 Only a **workspace owner** can do this.
 
 1. Open the [Developer portal](https://app.notion.com/developers/connections) → **Internal connections** → **Create a new connection**.
 2. Name it `Orion Claude` and pick the team workspace.
 3. Under **Capabilities**, enable: Read content, Update content, Insert content, Read comments, Insert comments, Read user information including email addresses.
 4. Copy the **API token** (starts with `ntn_`). Treat it like a password.
+5. Open **2026-2027** → `•••` → **Connections** → **Add connection** → `Orion Claude`. Sub-pages inherit access; anything not shared is invisible to the server.
 
-### 2. Share the season page with the connection
-Open **2026-2027** → `•••` → **Connections** → **Add connection** → `Orion Claude`.
-All sub-pages inherit access. Anything not shared with the connection is invisible to the server.
+### 2. Cloudflare: account and API token
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com/sign-up).
+2. Open **Workers & Pages** once and pick a `workers.dev` subdomain (e.g. `orion-11785`). The server will live at `https://orion-notion-mcp.<subdomain>.workers.dev`.
+3. Copy your **Account ID** (Workers & Pages overview, right side).
+4. **My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"** template → create, and copy the token.
 
-### 3. Install and log in to Cloudflare
+### 3. GitHub: add the secrets
+In this repo: **Settings → Secrets and variables → Actions → New repository secret**.
+
+| Secret | Value | Required |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | token from step 2 | yes |
+| `CLOUDFLARE_ACCOUNT_ID` | account ID from step 2 | yes |
+| `NOTION_TOKEN` | Notion token from step 1 | yes |
+| `TEAM_KEY` | a long random string, e.g. from `npm run team-key` | yes |
+| `DIGEST_DISCORD_WEBHOOK` | Discord channel webhook URL | for the daily digest |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram bot + group | for the daily digest |
+| `GITHUB_WEBHOOK_SECRET` | any random string | for GitHub → Notion sync |
+| `BACKUP_REPO_TOKEN` | see [Nightly backup](#nightly-backup) | for backups |
+
+### 4. Deploy
+**Actions → Deploy → Run workflow**. When it's green, open `https://orion-notion-mcp.<subdomain>.workers.dev`; it should say *"Orion Notion MCP server is running"*.
+From then on every push to `main` redeploys, and changing a secret takes effect on the next run.
+
+<details>
+<summary>Deploying from your own computer instead</summary>
+
 ```bash
 npm install
 npx wrangler login
-```
-
-### 4. Set the secrets
-```bash
 npx wrangler secret put NOTION_TOKEN
-# paste the token from step 1
-```
-
-Create the team link secret:
-```bash
-npm run team-key
 npx wrangler secret put TEAM_KEY
-# paste the key it printed
-```
-
-### 5. Deploy
-```bash
 npm run deploy
 ```
-You'll get a URL like `https://orion-notion-mcp.<account>.workers.dev`. Opening it in a browser should show *"Orion Notion MCP server is running"*.
+</details>
 
 ---
 
@@ -115,6 +124,46 @@ Then try: *"What are Team 2's open tasks?"*
 
 ---
 
+## Automations
+
+These run on their own and cover things guests can't set up in Notion. Each one stays off until its settings exist.
+
+### Daily digest
+Every morning at 07:00 (Israel) the team gets a message with today's meeting, overdue tasks, tasks due within two days, stuck tasks and Missions nobody took. It reads `MISSIONS_DB`, `TEAM_TASK_DBS` and `MEETINGS_DB` from `wrangler.toml`; "done" is whatever is in each status column's **Complete** group, so renamed options keep working.
+
+- **Discord:** channel → Edit Channel → Integrations → Webhooks → New Webhook → copy URL → secret `DIGEST_DISCORD_WEBHOOK`.
+- **Telegram:** create a bot with [@BotFather](https://t.me/BotFather), add it to the group, then set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+- **WhatsApp** isn't supported: there's no free, official way for a bot to post in a WhatsApp group.
+
+The wording lives in `LABELS` in `src/automation.ts`.
+
+### Weekly meeting page
+Set `MEETING_WEEKDAY` (0 = Sunday … 6 = Saturday) and optionally `MEETING_TIME` in `wrangler.toml`. Every day the server makes sure the next meeting has a page in Weekly Meetings, using the database's default template. It never creates duplicates.
+
+### GitHub → Notion task sync
+When a pull request opens, the team task whose **Main Branch Name** matches the PR branch moves to **Ready for Review**; when it's merged, to **Done**. A comment with the PR link is added to the task.
+
+1. Set the `GITHUB_WEBHOOK_SECRET` secret and redeploy.
+2. **Team-11785 → Settings → Webhooks → Add webhook**:
+   - Payload URL: `https://orion-notion-mcp.<subdomain>.workers.dev/github/webhook`
+   - Content type: `application/json`
+   - Secret: the same `GITHUB_WEBHOOK_SECRET`
+   - Events: **Pull requests** only
+
+Draft PRs are ignored until they're marked ready.
+
+### Nightly backup
+Every night `.github/workflows/backup.yml` exports every page (as Markdown, with its properties) and every database schema into a **private** repository, with full history in git. This protects the team if the Notion account that owns the workspace is ever lost.
+
+1. Create a **private** repo `Team-11785/orion-notion-backup` (empty).
+2. GitHub → Settings → Developer settings → **Fine-grained tokens** → generate a token with access to that repo only, permission **Contents: Read and write**.
+3. Add it as the `BACKUP_REPO_TOKEN` secret here. `NOTION_TOKEN` is shared with the deploy.
+4. **Actions → Notion backup → Run workflow** to run it right away.
+
+The backup never prints page content, because this repository's Actions logs are public.
+
+---
+
 ## Workspace map
 
 `notion_workspace_guide` builds the map live from Notion: the page tree under the season page, and every database with its columns and exact option names. New or renamed databases, columns and options show up automatically (cached for 10 minutes; ask Claude to refresh it right after a change).
@@ -130,7 +179,7 @@ Every change made through the server shows up in Notion as "Orion Claude". To se
 
 ```bash
 npm run typecheck   # type check
-npm test            # 26 tests: mocked Notion API + the official MCP client
+npm test            # 34 tests: mocked Notion API, automations, and the official MCP client
 npm run dev         # run locally (needs .dev.vars with NOTION_TOKEN and TEAM_KEY)
 ```
 

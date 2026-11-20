@@ -1,0 +1,74 @@
+# Tests and deploys the server to Cloudflare Workers on every push to main.
+# Needs Actions secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, NOTION_TOKEN, TEAM_KEY
+# Optional: DIGEST_DISCORD_WEBHOOK, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GITHUB_WEBHOOK_SECRET
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["README.md", "scripts/backup.mjs", ".github/workflows/backup.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: deploy
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set; skipping deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.skip != 'true'
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        if: steps.cfg.outputs.skip != 'true'
+      - name: Deploy worker
+        if: steps.cfg.outputs.skip != 'true'
+        run: npx wrangler deploy
+      - name: Upload secrets
+        if: steps.cfg.outputs.skip != 'true'
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          TEAM_KEY: ${{ secrets.TEAM_KEY }}
+          DIGEST_DISCORD_WEBHOOK: ${{ secrets.DIGEST_DISCORD_WEBHOOK }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+        run: |
+          # Only upload the secrets that are set, so optional features stay off until configured.
+          node -e '
+            const names = ["NOTION_TOKEN","TEAM_KEY","DIGEST_DISCORD_WEBHOOK","TELEGRAM_BOT_TOKEN","TELEGRAM_CHAT_ID","GITHUB_WEBHOOK_SECRET"];
+            const out = Object.fromEntries(names.filter(n => process.env[n]).map(n => [n, process.env[n]]));
+            require("fs").writeFileSync("secrets.json", JSON.stringify(out));
+            console.log("Uploading:", Object.keys(out).join(", ") || "(none)");
+          '
+          npx wrangler secret bulk secrets.json
+          rm -f secrets.json

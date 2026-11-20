@@ -2,12 +2,31 @@ name = "orion-notion-mcp"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
 
+# Runs once a day at 05:00 UTC (07:00/08:00 in Israel): creates the next meeting page and sends the digest.
+[triggers]
+crons = ["0 5 * * *"]
+
 [vars]
 # The top page of the season. Claude starts here when it needs to look around.
 ROOT_PAGE_ID = "5c401eef9edb83a3bd9381079ff45d75"
-# Optional: data source ID of a "Claude Log" database. Leave empty to disable logging.
+# Data source ID of the "Claude Log" database. Leave empty to disable logging.
 LOG_DATA_SOURCE_ID = "41e01eef-9edb-8163-8931-000b40678a8a"
+TIMEZONE = "Asia/Jerusalem"
 
-# Secrets (set with `npx wrangler secret put <NAME>`, never commit them):
-#   NOTION_TOKEN  - the internal connection token from Notion (starts with ntn_)
-#   TEAM_KEY      - the shared team link secret (`npm run team-key`)
+# Databases the daily digest and GitHub sync read (database IDs, comma-separated).
+MISSIONS_DB = "41c01eef9edb819f8d41fadc787679e3"
+TEAM_TASK_DBS = "89519dcef4044c508374a50e60138c9d,510869e53de54557b0fe5fa9b1ef4749,420291311be849928eaebd505069986c"
+MEETINGS_DB = "41b01eef9edb810aa577fd495a0747b6"
+
+# Weekly meeting page: weekday 0=Sunday … 6=Saturday. Leave MEETING_WEEKDAY empty to turn this off.
+MEETING_WEEKDAY = ""
+MEETING_TIME = ""
+MEETING_TITLE = "פגישה שבועית"
+
+# Secrets (set as GitHub Actions secrets, the deploy workflow uploads them; never commit them):
+#   NOTION_TOKEN            - the internal connection token from Notion (starts with ntn_)
+#   TEAM_KEY                - the shared team link secret (`npm run team-key`)
+#   DIGEST_DISCORD_WEBHOOK  - optional: Discord channel webhook for the daily digest
+#   TELEGRAM_BOT_TOKEN      - optional: Telegram bot for the daily digest
+#   TELEGRAM_CHAT_ID        -   … and the group chat it posts to
+#   GITHUB_WEBHOOK_SECRET   - optional: enables GitHub pull request → Notion task sync

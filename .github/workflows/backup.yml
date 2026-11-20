@@ -1,0 +1,64 @@
+# Nightly backup of the whole Notion workspace into a PRIVATE repository.
+# Needs two Actions secrets: NOTION_TOKEN and BACKUP_REPO_TOKEN (a fine-grained
+# token with "Contents: read and write" on Team-11785/orion-notion-backup).
+name: Notion backup
+
+on:
+  schedule:
+    - cron: "30 0 * * *" # 02:30-03:30 in Israel
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: notion-backup
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      BACKUP_REPO_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+    steps:
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$NOTION_TOKEN" ] || [ -z "$BACKUP_REPO_TOKEN" ]; then
+            echo "NOTION_TOKEN or BACKUP_REPO_TOKEN is not set; skipping backup."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.skip != 'true'
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.skip != 'true'
+        with:
+          repository: Team-11785/orion-notion-backup
+          token: ${{ secrets.BACKUP_REPO_TOKEN }}
+          path: backup
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.skip != 'true'
+        with:
+          node-version: 22
+
+      - name: Export Notion
+        if: steps.cfg.outputs.skip != 'true'
+        run: node scripts/backup.mjs backup
+
+      - name: Commit changes
+        if: steps.cfg.outputs.skip != 'true'
+        working-directory: backup
+        run: |
+          git config user.name "orion-backup"
+          git config user.email "orion-backup@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes since the last backup."
+          else
+            git commit -q -m "Backup $(date -u +%Y-%m-%d)"
+            git push -q
+            echo "Backup committed."
+          fi

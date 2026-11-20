@@ -3,6 +3,7 @@ import { Notion, NotionError } from "./notion.js";
 import { TOOLS } from "./registry.js";
 import type { Env, ToolContext } from "./tools.js";
 import { CONVENTIONS } from "./workspace.js";
+import { handleGithubWebhook, runScheduled, type AutomationEnv } from "./automation.js";
 
 /** The part of Cloudflare's ExecutionContext this server uses. */
 interface Exec {
@@ -111,6 +112,9 @@ export default {
   async fetch(request: Request, env: Env, exec: Exec): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/github/webhook" && request.method === "POST") {
+      return handleGithubWebhook(request, env as Env & AutomationEnv);
+    }
     if (url.pathname === "/" && request.method === "GET") {
       return new Response("Orion Notion MCP server is running. Connect Claude to /mcp/<team key>.\n");
     }
@@ -140,5 +144,10 @@ export default {
     }
     const reply = await handleRpc(payload, member, env, exec);
     return reply ? json(reply) : new Response(null, { status: 202 });
+  },
+
+  /** Daily cron (see [triggers] in wrangler.toml): next meeting page + digest. */
+  async scheduled(_event: unknown, env: Env, exec: Exec): Promise<void> {
+    exec.waitUntil(runScheduled(env as Env & AutomationEnv).then((r) => console.log("scheduled", JSON.stringify(r))));
   },
 };
