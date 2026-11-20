@@ -1,4 +1,4 @@
-import { hasRole, type Member, type Role } from "./auth.js";
+import type { Member } from "./auth.js";
 import { Notion, NotionError, normalizeId } from "./notion.js";
 import {
   buildProperties,
@@ -13,8 +13,6 @@ import {
 export interface Env {
   NOTION_TOKEN: string;
   TEAM_KEY?: string;
-  TEAM_ROLE?: string;
-  MEMBERS?: string;
   ROOT_PAGE_ID?: string;
   LOG_DATA_SOURCE_ID?: string;
 }
@@ -32,7 +30,6 @@ export interface Tool {
   name: string;
   title: string;
   description: string;
-  role: Role;
   annotations: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
   inputSchema: Record<string, unknown>;
   run: (args: any, ctx: ToolContext) => Promise<unknown>;
@@ -175,17 +172,13 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_whoami",
     title: "Who am I",
     description:
-      "Shows which team member this connection belongs to, their permission level, and the season's root page. Call it first if you're unsure what you're allowed to do.",
-    role: "viewer",
+      "Shows the workspace name, the name this connection logs under, and the season's root page.",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: {} },
     run: async (_args, ctx) => {
       const bot = await ctx.notion.get("/users/me");
       return {
         member: ctx.member.name,
-        role: ctx.member.role,
-        can_edit: hasRole(ctx.member, "editor"),
-        can_delete: hasRole(ctx.member, "admin"),
         root_page_id: ctx.env.ROOT_PAGE_ID || null,
         workspace: bot?.bot?.workspace_name ?? null,
       };
@@ -197,7 +190,6 @@ export const BASE_TOOLS: Tool[] = [
     title: "Search Notion",
     description:
       "Searches page and database titles the team's integration can see. Leave query empty to list recently edited items. Use type='data_source' to find databases.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -235,7 +227,6 @@ export const BASE_TOOLS: Tool[] = [
     title: "Read a page or database",
     description:
       "Reads a page (properties + full content as Notion-flavored Markdown), a database (its data sources and their schemas), or a data source schema. Accepts an ID or any Notion URL.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -313,7 +304,6 @@ export const BASE_TOOLS: Tool[] = [
     title: "Query database rows",
     description:
       "Lists rows of a database, with optional Notion filter and sorts (raw Notion API format). Accepts a data source ID, a database ID, or a database URL. Returns simplified property values.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -359,7 +349,6 @@ export const BASE_TOOLS: Tool[] = [
       "Creates up to 20 pages under a page, or rows in a database. Properties can be plain values " +
       '(e.g. {"Name":"Print motor mount","Status":"In progress","Due":"2026-11-26","Owner":"Itay"}); ' +
       "people can be given by name or email. Content is Notion-flavored Markdown.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -434,7 +423,6 @@ export const BASE_TOOLS: Tool[] = [
       "Updates a page's properties, icon, cover, and/or content. Content modes: " +
       "'search_replace' (preferred: exact old text -> new text), 'append', 'prepend', or 'replace_all' (rewrites the whole page). " +
       "Read the page with notion_fetch first so old text matches exactly.",
-    role: "editor",
     annotations: { idempotentHint: false },
     inputSchema: {
       type: "object",
@@ -466,7 +454,7 @@ export const BASE_TOOLS: Tool[] = [
         },
         allow_deleting_content: {
           type: "boolean",
-          description: "Allow the edit to remove child pages or databases (admins only)",
+          description: "Allow the edit to remove child pages or databases. Ask the user first.",
         },
       },
       required: ["page_id"],
@@ -474,9 +462,6 @@ export const BASE_TOOLS: Tool[] = [
     run: async (args, ctx) => {
       const id = normalizeId(args.page_id);
       const allowDelete = Boolean(args.allow_deleting_content);
-      if (allowDelete && !hasRole(ctx.member, "admin")) {
-        throw new Error("only admins can remove child pages or databases");
-      }
       const done: string[] = [];
 
       const patch: Record<string, unknown> = {};
@@ -547,7 +532,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_move_page",
     title: "Move a page",
     description: "Moves a page under another page, or into a database.",
-    role: "editor",
     annotations: { idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -575,7 +559,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_trash_page",
     title: "Move a page to trash",
     description: "Moves a page or database row to Notion's trash. It can be restored with notion_restore_page.",
-    role: "admin",
     annotations: { destructiveHint: true, idempotentHint: true },
     inputSchema: { type: "object", properties: { page_id: str("Page ID or URL") }, required: ["page_id"] },
     run: async (args, ctx) => {
@@ -589,7 +572,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_restore_page",
     title: "Restore a page from trash",
     description: "Restores a page that was moved to trash.",
-    role: "admin",
     annotations: { idempotentHint: true },
     inputSchema: { type: "object", properties: { page_id: str("Page ID or URL") }, required: ["page_id"] },
     run: async (args, ctx) => {
@@ -606,7 +588,6 @@ export const BASE_TOOLS: Tool[] = [
       "Creates a new database inside a page. Schema shorthand: " +
       '{"Name":"title","Status":"status","Owner":"people","Due":"date","Priority":{"select":["High","Medium","Low"]}}. ' +
       "Raw Notion property configs also work.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -642,8 +623,7 @@ export const BASE_TOOLS: Tool[] = [
     title: "Change a database's columns",
     description:
       "Renames a database or adds/changes/renames/removes columns. " +
-      'Add: {"Priority":{"select":["High","Low"]}}. Rename: {"Old name":{"name":"New name"}}. Remove (admins only): {"Column":null}.',
-    role: "editor",
+      'Add: {"Priority":{"select":["High","Low"]}}. Rename: {"Old name":{"name":"New name"}}. Remove (deletes that column\'s data from every row; ask the user first): {"Column":null}.',
     annotations: {},
     inputSchema: {
       type: "object",
@@ -658,9 +638,6 @@ export const BASE_TOOLS: Tool[] = [
       const target = await resolveContainer(ctx, args.id);
       if (target.kind !== "data_source") throw new Error("that ID is a page, not a database");
       const props = args.properties ? normalizeSchema(args.properties) : undefined;
-      if (props && Object.values(props).some((v) => v === null) && !hasRole(ctx.member, "admin")) {
-        throw new Error("only admins can remove columns (it deletes that data from every row)");
-      }
       const ds = await ctx.notion.patch(`/data_sources/${target.id}`, compact({
         title: args.title ? richText(args.title) : undefined,
         properties: props,
@@ -675,7 +652,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_list_views",
     title: "List database views",
     description: "Lists the views (table, board, calendar, ...) of a database.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: { id: str("Database ID or URL") }, required: ["id"] },
     run: async (args, ctx) => {
@@ -705,7 +681,6 @@ export const BASE_TOOLS: Tool[] = [
     description:
       "Adds a view to a database. type: table, board, list, calendar, timeline, gallery, form, chart, map. " +
       "board needs configuration.group_by; calendar/timeline need configuration.date_property_id. Filters and sorts use Notion's API format.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -740,7 +715,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_update_view",
     title: "Update a database view",
     description: "Changes a view's name, filter, sorts or configuration.",
-    role: "editor",
     annotations: { idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -765,7 +739,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_delete_view",
     title: "Delete a database view",
     description: "Deletes a view (the data stays; only the view is removed).",
-    role: "admin",
     annotations: { destructiveHint: true },
     inputSchema: { type: "object", properties: { view_id: str("View ID") }, required: ["view_id"] },
     run: async (args, ctx) => {
@@ -779,7 +752,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_get_comments",
     title: "Read comments",
     description: "Lists the comments on a page or block, grouped by discussion thread.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: { id: str("Page or block ID or URL") }, required: ["id"] },
     run: async (args, ctx) => {
@@ -810,7 +782,6 @@ export const BASE_TOOLS: Tool[] = [
     title: "Add a comment",
     description:
       "Comments on a page or block, or replies in an existing discussion. The comment shows the team member's name.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -845,7 +816,6 @@ export const BASE_TOOLS: Tool[] = [
     name: "notion_get_users",
     title: "List people",
     description: "Lists people in the workspace (members and guests) with their IDs, optionally filtered by name or email.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: { query: str("Part of a name or email") } },
     run: async (args, ctx) => {
@@ -860,11 +830,10 @@ export const BASE_TOOLS: Tool[] = [
 
   {
     name: "notion_api_request",
-    title: "Raw Notion API call (admins)",
+    title: "Raw Notion API call",
     description:
       "Escape hatch for anything the other tools don't cover: calls any Notion API endpoint (version 2026-03-11) directly. " +
       "Example: method GET, path /blocks/{id}/children.",
-    role: "admin",
     annotations: { destructiveHint: true },
     inputSchema: {
       type: "object",

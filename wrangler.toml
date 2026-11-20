@@ -5,12 +5,9 @@ compatibility_date = "2026-11-01"
 [vars]
 # The top page of the season. Claude starts here when it needs to look around.
 ROOT_PAGE_ID = "5c401eef9edb83a3bd9381079ff45d75"
-# Role for everyone using the team link: viewer, editor or admin.
-TEAM_ROLE = "editor"
 # Optional: data source ID of a "Claude Log" database. Leave empty to disable logging.
 LOG_DATA_SOURCE_ID = "41e01eef-9edb-8163-8931-000b40678a8a"
 
 # Secrets (set with `npx wrangler secret put <NAME>`, never commit them):
 #   NOTION_TOKEN  - the internal connection token from Notion (starts with ntn_)
 #   TEAM_KEY      - the shared team link secret (`npm run team-key`)
-#   MEMBERS       - optional personal keys, JSON from `npm run gen-key`

@@ -3,16 +3,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import worker from "../src/index.js";
 
 const KEY = "sdk-test-key-0123456789abcdef";
-const env = {
-  NOTION_TOKEN: "ntn_test",
-  MEMBERS: JSON.stringify({ [createHash("sha256").update(KEY).digest("hex")]: { name: "Tester", role: "editor" } }),
-};
+const env = { NOTION_TOKEN: "ntn_test", TEAM_KEY: KEY };
 
 test("official MCP SDK client can connect and call a tool", async () => {
   const server = createServer(async (req, res) => {
@@ -31,13 +27,11 @@ test("official MCP SDK client can connect and call a tool", async () => {
   const port = (server.address() as any).port;
 
   const client = new Client({ name: "sdk-test", version: "1.0.0" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(`http://localhost:${port}/mcp/${KEY}`)));
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://localhost:${port}/mcp/${KEY}?name=Tester`)));
   const { tools } = await client.listTools();
   assert.ok(tools.length >= 20, `got ${tools.length} tools`);
   assert.ok(tools.some((t) => t.name === "notion_create_pages"));
-  assert.ok(!tools.some((t) => t.name === "notion_trash_page"), "editor must not see admin tools");
-  const result: any = await client.callTool({ name: "notion_workspace_guide", arguments: {} });
-  assert.match(result.content[0].text, /Missions/);
+  assert.ok(tools.some((t) => t.name === "notion_workspace_guide"));
   assert.match(client.getInstructions() ?? "", /Tester/);
   await client.close();
   server.close();

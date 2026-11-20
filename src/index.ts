@@ -1,6 +1,6 @@
 import { authenticate, type Member } from "./auth.js";
 import { Notion, NotionError } from "./notion.js";
-import { TOOLS, toolsFor } from "./registry.js";
+import { TOOLS } from "./registry.js";
 import type { Env, ToolContext } from "./tools.js";
 import { CONVENTIONS } from "./workspace.js";
 
@@ -32,12 +32,13 @@ const json = (body: unknown, status = 200) =>
 function instructions(env: Env, member: Member) {
   return [
     "This server is the Orion FRC robotics team's Notion workspace.",
-    `You are acting for team member "${member.name}" (permission: ${member.role}).`,
+    `Actions are logged under "${member.name}".`,
     env.ROOT_PAGE_ID
       ? `The season's root page is ${env.ROOT_PAGE_ID}; start there (notion_fetch) when you need to find your way around.`
       : "",
     "Before editing a page, read it with notion_fetch. Before adding rows, read the database schema with notion_fetch.",
     "Prefer small, targeted edits (search_replace) over rewriting whole pages.",
+    "Before deleting anything (trash, removing columns, allow_deleting_content), confirm with the user.",
     "Team members often write in Hebrew; reply in the language they use.",
     "Call notion_workspace_guide once at the start: it lists every database, its columns and exact option names, read live from Notion.",
     "",
@@ -66,7 +67,7 @@ async function handleRpc(msg: RpcRequest, member: Member, env: Env, exec: Exec):
 
     case "tools/list":
       return rpcResult(msg.id, {
-        tools: toolsFor(member).map((t) => ({
+        tools: TOOLS.map((t) => ({
           name: t.name,
           title: t.title,
           description: t.description,
@@ -79,12 +80,6 @@ async function handleRpc(msg: RpcRequest, member: Member, env: Env, exec: Exec):
       const name = msg.params?.name;
       const tool = TOOLS.find((t) => t.name === name);
       if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
-      if (!toolsFor(member).includes(tool)) {
-        return rpcResult(msg.id, {
-          content: [{ type: "text", text: `${member.name} doesn't have permission for ${name} (needs ${tool.role}).` }],
-          isError: true,
-        });
-      }
       const ctx: ToolContext = {
         notion: new Notion(env.NOTION_TOKEN),
         member,
@@ -123,7 +118,7 @@ export default {
 
     if (!env.NOTION_TOKEN) return json(rpcError(null, -32603, "Server is missing NOTION_TOKEN"), 500);
 
-    const member = await authenticate(request, env);
+    const member = authenticate(request, env);
     if (!member) return json(rpcError(null, -32001, "Unknown or missing key in the link"), 401);
 
     // Stateless server: no SSE stream and no sessions to close.

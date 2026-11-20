@@ -7,8 +7,7 @@ team member → their Claude → this server (Cloudflare Workers) → Notion API
 ```
 
 - **Free:** Cloudflare Workers and the Notion API cost nothing, and everyone uses their own Claude account.
-- **One link for the whole team:** paste it into Claude (or any MCP client) and start working. No accounts, no personal keys.
-- **Optional personal keys** for admins, with three roles: `viewer` (read), `editor` (read + write), `admin` (also delete).
+- **One link for the whole team:** paste it into Claude (or any MCP client) and start working. No accounts, no personal keys, no roles: everyone with the link can do everything.
 - **Always up to date:** the workspace map (pages, databases, columns, option names) is read live from Notion.
 - **Accountability:** every write is logged to a Notion database.
 
@@ -48,13 +47,6 @@ npm run team-key
 npx wrangler secret put TEAM_KEY
 # paste the key it printed
 ```
-Everyone using the team link gets the role in `TEAM_ROLE` (`wrangler.toml`, default `editor`).
-
-Optional: personal keys for admins (can trash pages, delete columns, raw API):
-```bash
-npm run gen-key -- "Carmel:admin" "Liran:admin"
-npx wrangler secret put MEMBERS < members.json
-```
 
 ### 5. Deploy
 ```bash
@@ -87,37 +79,37 @@ Then try: *"What are Team 2's open tasks?"*
 
 ## Tools
 
-| Tool | What it does | Role |
-|---|---|---|
-| `notion_whoami` | Who am I and what can I do | viewer |
-| `notion_workspace_guide` | Map of the workspace: databases, columns, option names | viewer |
-| `notion_search` | Search pages and databases | viewer |
-| `notion_fetch` | Read a page (full content), a database or a schema | viewer |
-| `notion_query_data_source` | Database rows with filters and sorts | viewer |
-| `notion_get_recent_changes` | What changed recently | viewer |
-| `notion_list_views` | Views of a database | viewer |
-| `notion_get_comments` | Read comments | viewer |
-| `notion_get_users` | List people | viewer |
-| `notion_get_block_children` | List the blocks in a page | viewer |
-| `notion_get_page_property` | Full values of long relation/people properties | viewer |
-| `notion_list_templates` | Templates of a database | viewer |
-| `notion_query_meeting_notes` | Notion AI meeting notes | viewer |
-| `notion_create_pages` | Create pages and rows (up to 20 at once) | editor |
-| `notion_update_page` | Update properties, icon and content | editor |
-| `notion_duplicate_page` | Copy a page or row | editor |
-| `notion_move_page` | Move a page | editor |
-| `notion_upload_file_from_url` | Add an image or file from a link | editor |
-| `notion_update_block` | Edit a single block (e.g. tick a to-do) | editor |
-| `notion_create_database` | Create a database | editor |
-| `notion_update_data_source` | Add or change columns | editor |
-| `notion_create_view` / `notion_update_view` | Table, board, calendar… views | editor |
-| `notion_create_comment` | Comment, signed with the member's name | editor |
-| `notion_update_comment` / `notion_delete_comment` | Edit/delete comments written through the server | editor |
-| `notion_trash_page` / `notion_restore_page` | Trash and restore | admin |
-| `notion_delete_view` / `notion_delete_block` | Delete a view or block | admin |
-| `notion_api_request` | Direct access to any Notion API endpoint | admin |
+| Tool | What it does |
+|---|---|
+| `notion_whoami` | Workspace name and the season root page |
+| `notion_workspace_guide` | Map of the workspace: databases, columns, option names |
+| `notion_search` | Search pages and databases |
+| `notion_fetch` | Read a page (full content), a database or a schema |
+| `notion_query_data_source` | Database rows with filters and sorts |
+| `notion_get_recent_changes` | What changed recently |
+| `notion_list_views` | Views of a database |
+| `notion_get_comments` | Read comments |
+| `notion_get_users` | List people |
+| `notion_get_block_children` | List the blocks in a page |
+| `notion_get_page_property` | Full values of long relation/people properties |
+| `notion_list_templates` | Templates of a database |
+| `notion_query_meeting_notes` | Notion AI meeting notes |
+| `notion_create_pages` | Create pages and rows (up to 20 at once) |
+| `notion_update_page` | Update properties, icon and content |
+| `notion_duplicate_page` | Copy a page or row |
+| `notion_move_page` | Move a page |
+| `notion_upload_file_from_url` | Add an image or file from a link |
+| `notion_update_block` | Edit a single block (e.g. tick a to-do) |
+| `notion_create_database` | Create a database |
+| `notion_update_data_source` | Add or change columns |
+| `notion_create_view` / `notion_update_view` | Table, board, calendar… views |
+| `notion_create_comment` | Comment, signed with the member's name |
+| `notion_update_comment` / `notion_delete_comment` | Edit/delete comments written through the server |
+| `notion_trash_page` / `notion_restore_page` | Trash and restore |
+| `notion_delete_view` / `notion_delete_block` | Delete a view or block |
+| `notion_api_request` | Direct access to any Notion API endpoint |
 
-**Guard rails:** editors can't remove child pages or databases from a page, and can't delete columns. Only admins can.
+**Deleting:** trashing pages, removing columns and edits that remove sub-pages all work, but Claude is instructed to confirm with you first. Trashed pages can be restored for 30 days.
 
 **Not possible through the Notion API:** Notion Calendar, Notion Agents/AI, version history, favorites and the sidebar. Duplicating works, but sub-pages and databases inside the copied page become links instead of copies.
 
@@ -132,26 +124,14 @@ Only the team conventions in `src/workspace.ts` (e.g. "new team-wide work goes t
 
 Every change made through the server shows up in Notion as "Orion Claude". To see who asked for what, the server writes a row to the **Claude Log** database (already created under the season page; its ID is set in `wrangler.toml`). If you recreate it, it needs the columns `Action` (Title), `Member` (Text), `Page` (URL) and `Details` (Text); then update `LOG_DATA_SOURCE_ID`.
 
-## Managing personal keys (optional)
-
-- **Add someone** without changing existing keys:
-  ```bash
-  npm run gen-key -- --existing members.json "NewName:editor"
-  npx wrangler secret put MEMBERS < members.json
-  ```
-- **Remove someone:** delete their entry from `members.json` and upload it again.
-- **Leaked key:** remove the member and add them again to issue a new key.
-
-Keep `members.json` with whoever runs the server. It's gitignored on purpose.
-
 ---
 
 ## Development
 
 ```bash
 npm run typecheck   # type check
-npm test            # 27 tests: mocked Notion API + the official MCP client
-npm run dev         # run locally (needs .dev.vars with NOTION_TOKEN and MEMBERS)
+npm test            # 26 tests: mocked Notion API + the official MCP client
+npm run dev         # run locally (needs .dev.vars with NOTION_TOKEN and TEAM_KEY)
 ```
 
 **Rate limit:** Notion allows about 3 requests per second per connection, shared by the whole team. The server backs off and retries automatically.

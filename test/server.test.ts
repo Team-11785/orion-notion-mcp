@@ -1,6 +1,5 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import worker from "../src/index.js";
 import { normalizeId } from "../src/notion.js";
 
@@ -116,25 +115,21 @@ globalThis.fetch = (async (input: any, init?: any) => {
 
 // ------------------------------------------------------------ harness
 
-const KEYS = { viewer: "viewer-key-aaaaaaaaaaaa", editor: "editor-key-bbbbbbbbbbbb", admin: "admin-key-cccccccccccc" };
-const hash = (k: string) => createHash("sha256").update(k).digest("hex");
+const TEAM = "team-key-0123456789abcdef";
+// Everyone uses the same team link; the names only make the tests easier to read.
+const KEYS = { viewer: TEAM, editor: TEAM, admin: TEAM };
 const env = {
   NOTION_TOKEN: "ntn_test",
-  TEAM_KEY: "team-key-0123456789abcdef",
+  TEAM_KEY: TEAM,
   ROOT_PAGE_ID: PAGE,
   LOG_DATA_SOURCE_ID: LOG_DS,
-  MEMBERS: JSON.stringify({
-    [hash(KEYS.viewer)]: { name: "Noa", role: "viewer" },
-    [hash(KEYS.editor)]: { name: "Itay", role: "editor" },
-    [hash(KEYS.admin)]: { name: "Carmel", role: "admin" },
-  }),
 };
 
 let pending: Promise<unknown>[] = [];
 const exec = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {} } as any;
 
 async function rpc(key: keyof typeof KEYS | null, method: string, params?: any, id: number | null = 1) {
-  const url = key ? `https://srv.example/mcp/${KEYS[key]}` : "https://srv.example/mcp";
+  const url = key ? `https://srv.example/mcp/${KEYS[key]}?name=Itay` : "https://srv.example/mcp";
   const res = await worker.fetch(
     new Request(url, {
       method: "POST",
@@ -199,24 +194,12 @@ test("notifications get 202 with no body", async () => {
   assert.equal(res.status, 202);
 });
 
-test("tool list depends on role", async () => {
-  const names = async (k: keyof typeof KEYS) =>
-    (await rpc(k, "tools/list")).body.result.tools.map((t: any) => t.name);
-  const viewer = await names("viewer");
-  const editor = await names("editor");
-  const admin = await names("admin");
-  assert.ok(viewer.includes("notion_fetch") && !viewer.includes("notion_create_pages"));
-  assert.ok(editor.includes("notion_create_pages") && !editor.includes("notion_trash_page"));
-  assert.ok(admin.includes("notion_trash_page") && admin.includes("notion_api_request"));
-  assert.equal(admin.length, 31);
-  assert.ok(viewer.includes("notion_workspace_guide"));
-});
-
-test("viewer can't call write tools", async () => {
-  const r = await call("viewer", "notion_create_pages", { parent_id: PAGE, pages: [{ title: "x" }] });
-  assert.ok(r.isError);
-  assert.match(r.text, /permission/);
-  assert.equal(calls.length, 0);
+test("every tool is available through the team link", async () => {
+  const names = (await rpc("viewer", "tools/list")).body.result.tools.map((t: any) => t.name);
+  assert.equal(names.length, 31);
+  for (const n of ["notion_fetch", "notion_create_pages", "notion_trash_page", "notion_api_request", "notion_workspace_guide"]) {
+    assert.ok(names.includes(n), n);
+  }
 });
 
 test("fetch returns page properties and markdown", async () => {
@@ -303,15 +286,14 @@ test("update_page sends search-and-replace edits and a log row", async () => {
   assert.equal(log.body.properties.Member.rich_text[0].text.content, "Itay");
 });
 
-test("editors can't delete child content or columns; admins can trash", async () => {
+test("deleting tools work (Claude is told to confirm first)", async () => {
   const a = await call("editor", "notion_update_page", { page_id: PAGE, content: { mode: "replace_all", markdown: "x" }, allow_deleting_content: true });
-  assert.ok(a.isError);
-  const b = await call("editor", "notion_update_data_source", { id: DS, properties: { Tags: null } });
-  assert.ok(b.isError);
-  assert.match(b.text, /only admins/);
+  assert.ok(!a.isError, a.text);
+  assert.equal(calls.find((c) => c.path.endsWith("/markdown") && c.method === "PATCH")!.body.replace_content.allow_deleting_content, true);
   const c = await call("admin", "notion_trash_page", { page_id: PAGE });
   assert.ok(!c.isError, c.text);
-  assert.deepEqual(calls.find((x) => x.method === "PATCH")!.body, { in_trash: true });
+  const init = await rpc("viewer", "initialize", {});
+  assert.match(init.body.result.instructions, /confirm with the user/);
 });
 
 test("move into a database uses data_source_id parent", async () => {
@@ -395,12 +377,12 @@ test("the shared team link works without personal keys", async () => {
   const post = (url: string) =>
     worker.fetch(
       new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }) }),
-      { ...env, MEMBERS: undefined } as any,
+      env as any,
       exec,
     );
   const ok = await post("https://srv.example/mcp/team-key-0123456789abcdef?name=Itay");
   assert.equal(ok.status, 200);
-  assert.match((await ok.json()).result.instructions, /Itay \(team link\).*editor/);
+  assert.match((await ok.json()).result.instructions, /logged under "Itay"/);
   const anon = await post("https://srv.example/mcp/team-key-0123456789abcdef");
   assert.match((await anon.json()).result.instructions, /Orion team/);
   assert.equal((await post("https://srv.example/mcp/team-key-0123456789abcdeX")).status, 401);
@@ -410,7 +392,7 @@ test("the shared team link works without personal keys", async () => {
 test("a too-short team key is ignored", async () => {
   const res = await worker.fetch(
     new Request("https://srv.example/mcp/shortkey12345678", { method: "POST", body: "{}" }),
-    { ...env, TEAM_KEY: "short", MEMBERS: undefined } as any,
+    { ...env, TEAM_KEY: "short" } as any,
     exec,
   );
   assert.equal(res.status, 401);

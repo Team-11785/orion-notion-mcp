@@ -104,7 +104,6 @@ export const EXTRA_TOOLS: Tool[] = [
       "Returns a live map of the Orion workspace: the page tree, every database with its columns and the exact option names, " +
       "plus team conventions. Read this before adding or filtering tasks, meetings, ideas or team members. " +
       "It's cached for 10 minutes; pass refresh=true right after the structure changed.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -119,7 +118,6 @@ export const EXTRA_TOOLS: Tool[] = [
     description:
       "Copies a page or database row (properties, icon, cover and content) to the same place or a new parent. " +
       "Sub-pages and databases inside it are not copied; they become links to the originals.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -195,7 +193,6 @@ export const EXTRA_TOOLS: Tool[] = [
     description:
       "Imports a file from a public URL into Notion and attaches it: as a block at the end of a page (image/PDF/video/file), " +
       "as the page icon or cover, or into a Files property.",
-    role: "editor",
     annotations: {},
     inputSchema: {
       type: "object",
@@ -254,7 +251,6 @@ export const EXTRA_TOOLS: Tool[] = [
     title: "List blocks in a page",
     description:
       "Lists the blocks inside a page or block with their IDs, for precise edits with notion_update_block or comments on a specific block.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -273,7 +269,6 @@ export const EXTRA_TOOLS: Tool[] = [
     description:
       'Edits a single block in Notion\'s raw block format, e.g. tick a to-do: {"to_do":{"checked":true}}, or change text: ' +
       '{"paragraph":{"rich_text":[{"text":{"content":"new text"}}]}}.',
-    role: "editor",
     annotations: { idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -291,7 +286,6 @@ export const EXTRA_TOOLS: Tool[] = [
     name: "notion_delete_block",
     title: "Delete a block",
     description: "Deletes a single block (moves it to trash).",
-    role: "admin",
     annotations: { destructiveHint: true },
     inputSchema: { type: "object", properties: { block_id: str("Block ID") }, required: ["block_id"] },
     run: async (args, ctx) => {
@@ -306,7 +300,6 @@ export const EXTRA_TOOLS: Tool[] = [
     title: "Read a long property",
     description:
       "Reads every value of one property of a page. Use it when a relation or people property has more than 25 entries (notion_fetch shows has_more).",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -340,7 +333,6 @@ export const EXTRA_TOOLS: Tool[] = [
     name: "notion_list_templates",
     title: "List database templates",
     description: "Lists the page templates of a database, for use with notion_create_pages (template).",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: { id: str("Database or data source ID or URL") }, required: ["id"] },
     run: async (args, ctx) => {
@@ -357,7 +349,6 @@ export const EXTRA_TOOLS: Tool[] = [
     description:
       "Lists Notion AI meeting-note blocks (newest first). Read one with notion_fetch on its ID (include_transcript for the transcript). " +
       "Only works if the workspace uses Notion AI meeting notes.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -389,7 +380,6 @@ export const EXTRA_TOOLS: Tool[] = [
     name: "notion_update_comment",
     title: "Edit a comment",
     description: "Edits a comment that was written through this server (Notion only allows editing the integration's own comments).",
-    role: "editor",
     annotations: { idempotentHint: true },
     inputSchema: {
       type: "object",
@@ -407,7 +397,6 @@ export const EXTRA_TOOLS: Tool[] = [
     name: "notion_delete_comment",
     title: "Delete a comment",
     description: "Deletes a comment that was written through this server.",
-    role: "editor",
     annotations: { destructiveHint: true },
     inputSchema: { type: "object", properties: { comment_id: str("Comment ID") }, required: ["comment_id"] },
     run: async (args, ctx) => {
@@ -422,7 +411,6 @@ export const EXTRA_TOOLS: Tool[] = [
     title: "What changed recently",
     description:
       "Lists pages and database rows edited recently across the workspace, newest first. Good for 'what happened this week?'.",
-    role: "viewer",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
