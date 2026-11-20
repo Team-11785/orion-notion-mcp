@@ -2,7 +2,7 @@ import { authenticate, type Member } from "./auth.js";
 import { Notion, NotionError } from "./notion.js";
 import { TOOLS, toolsFor } from "./registry.js";
 import type { Env, ToolContext } from "./tools.js";
-import { WORKSPACE_MAP } from "./workspace.js";
+import { CONVENTIONS } from "./workspace.js";
 
 /** The part of Cloudflare's ExecutionContext this server uses. */
 interface Exec {
@@ -39,8 +39,9 @@ function instructions(env: Env, member: Member) {
     "Before editing a page, read it with notion_fetch. Before adding rows, read the database schema with notion_fetch.",
     "Prefer small, targeted edits (search_replace) over rewriting whole pages.",
     "Team members often write in Hebrew; reply in the language they use.",
+    "Call notion_workspace_guide once at the start: it lists every database, its columns and exact option names, read live from Notion.",
     "",
-    WORKSPACE_MAP,
+    CONVENTIONS,
   ]
     .filter(Boolean)
     .join("\n");
@@ -116,14 +117,14 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/" && request.method === "GET") {
-      return new Response("Orion Notion MCP server is running. Connect Claude to /mcp/<your key>.\n");
+      return new Response("Orion Notion MCP server is running. Connect Claude to /mcp/<team key>.\n");
     }
     if (!/^\/mcp(\/|$)/.test(url.pathname)) return new Response("Not found", { status: 404 });
 
     if (!env.NOTION_TOKEN) return json(rpcError(null, -32603, "Server is missing NOTION_TOKEN"), 500);
 
-    const member = await authenticate(request, env.MEMBERS);
-    if (!member) return json(rpcError(null, -32001, "Unknown or missing member key"), 401);
+    const member = await authenticate(request, env);
+    if (!member) return json(rpcError(null, -32001, "Unknown or missing key in the link"), 401);
 
     // Stateless server: no SSE stream and no sessions to close.
     if (request.method === "GET" || request.method === "DELETE") {

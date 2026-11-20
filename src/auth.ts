@@ -54,9 +54,36 @@ export function parseMembers(raw: string | undefined): Record<string, Member> {
   return out;
 }
 
-export async function authenticate(request: Request, membersRaw: string | undefined): Promise<Member | null> {
+export interface AuthEnv {
+  /** One shared secret for the whole team: everyone uses the same link. */
+  TEAM_KEY?: string;
+  /** Role for people using the team link (default: editor). */
+  TEAM_ROLE?: string;
+  /** Optional personal keys (e.g. admins), see scripts/gen-key.mjs. */
+  MEMBERS?: string;
+}
+
+/** Constant-time string comparison, so the team key can't be guessed byte by byte. */
+function safeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  let diff = ea.length ^ eb.length;
+  for (let i = 0; i < Math.max(ea.length, eb.length); i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
+  return diff === 0;
+}
+
+export async function authenticate(request: Request, env: AuthEnv): Promise<Member | null> {
   const key = extractKey(request);
   if (!key) return null;
-  const members = parseMembers(membersRaw);
+
+  const team = env.TEAM_KEY?.trim();
+  if (team && team.length >= 16 && safeEqual(key, team)) {
+    // Optional, unverified name for the action log: .../mcp/<team-key>?name=Itay
+    const name = new URL(request.url).searchParams.get("name")?.trim().slice(0, 40);
+    const role: Role = env.TEAM_ROLE === "viewer" || env.TEAM_ROLE === "admin" ? env.TEAM_ROLE : "editor";
+    return { name: name ? `${name} (team link)` : "Orion team", role };
+  }
+
+  const members = parseMembers(env.MEMBERS);
   return members[await sha256Hex(key)] ?? null;
 }

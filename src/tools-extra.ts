@@ -10,7 +10,7 @@ import {
   type Tool,
   type ToolContext,
 } from "./tools.js";
-import { WORKSPACE_MAP } from "./workspace.js";
+import { getWorkspaceMap } from "./workspace.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -101,11 +101,16 @@ export const EXTRA_TOOLS: Tool[] = [
     name: "notion_workspace_guide",
     title: "Orion workspace map",
     description:
-      "Returns a map of the Orion workspace: where each database lives, its columns and the exact option names. Read this before adding or filtering tasks, meetings, ideas or team members.",
+      "Returns a live map of the Orion workspace: the page tree, every database with its columns and the exact option names, " +
+      "plus team conventions. Read this before adding or filtering tasks, meetings, ideas or team members. " +
+      "It's cached for 10 minutes; pass refresh=true right after the structure changed.",
     role: "viewer",
     annotations: { readOnlyHint: true },
-    inputSchema: { type: "object", properties: {} },
-    run: async () => WORKSPACE_MAP,
+    inputSchema: {
+      type: "object",
+      properties: { refresh: { type: "boolean", description: "Rebuild now instead of using the 10-minute cache" } },
+    },
+    run: async (args, ctx) => getWorkspaceMap(ctx.notion, ctx.env.ROOT_PAGE_ID, { refresh: Boolean(args.refresh) }),
   },
 
   {

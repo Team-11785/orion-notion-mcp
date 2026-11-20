@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build:test && node --test dist-test/test/*.test.js",
-    "gen-key": "node scripts/gen-key.mjs"
+    "gen-key": "node scripts/gen-key.mjs",
+    "team-key": "node scripts/team-key.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261119.1",

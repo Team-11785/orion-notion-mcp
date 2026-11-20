@@ -12,7 +12,9 @@ import {
 
 export interface Env {
   NOTION_TOKEN: string;
-  MEMBERS: string;
+  TEAM_KEY?: string;
+  TEAM_ROLE?: string;
+  MEMBERS?: string;
   ROOT_PAGE_ID?: string;
   LOG_DATA_SOURCE_ID?: string;
 }

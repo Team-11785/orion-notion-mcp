@@ -7,8 +7,10 @@ team member → their Claude → this server (Cloudflare Workers) → Notion API
 ```
 
 - **Free:** Cloudflare Workers and the Notion API cost nothing, and everyone uses their own Claude account.
-- **Personal key per member**, with three roles: `viewer` (read), `editor` (read + write), `admin` (also delete).
-- **Accountability:** comments show the member's name, and every write can be logged to a Notion database.
+- **One link for the whole team:** paste it into Claude (or any MCP client) and start working. No accounts, no personal keys.
+- **Optional personal keys** for admins, with three roles: `viewer` (read), `editor` (read + write), `admin` (also delete).
+- **Always up to date:** the workspace map (pages, databases, columns, option names) is read live from Notion.
+- **Accountability:** every write is logged to a Notion database.
 
 ---
 
@@ -40,12 +42,19 @@ npx wrangler secret put NOTION_TOKEN
 # paste the token from step 1
 ```
 
-Generate member keys (`"Name:role"` for each person):
+Create the team link secret:
 ```bash
-npm run gen-key -- "Carmel:admin" "Liran:admin" "Itay:editor" "Noa:viewer"
+npm run team-key
+npx wrangler secret put TEAM_KEY
+# paste the key it printed
+```
+Everyone using the team link gets the role in `TEAM_ROLE` (`wrangler.toml`, default `editor`).
+
+Optional: personal keys for admins (can trash pages, delete columns, raw API):
+```bash
+npm run gen-key -- "Carmel:admin" "Liran:admin"
 npx wrangler secret put MEMBERS < members.json
 ```
-The script prints a **personal key** for each person. Send each one only their own key, privately. Keys are never stored: `members.json` only holds their SHA-256 hashes.
 
 ### 5. Deploy
 ```bash
@@ -55,18 +64,24 @@ You'll get a URL like `https://orion-notion-mcp.<account>.workers.dev`. Opening 
 
 ---
 
-## Connecting Claude (each member)
+## Connecting (each member)
 
-1. In Claude: **Settings** → **Connectors** → **Add custom connector**.
-2. Name: `Orion Notion`.
-3. URL:
-   ```
-   https://orion-notion-mcp.<account>.workers.dev/mcp/<personal-key>
-   ```
-4. **Add**. Then try: *"What are Team 2's open tasks?"*
+The team link looks like `https://orion-notion-mcp.<account>.workers.dev/mcp/<team-key>`.
+Add `?name=YourName` at the end if you want your name in the action log (optional, not verified).
 
-> Claude Free allows **one** custom connector, which is enough for this.
-> If you'd rather keep the key out of the URL, use `.../mcp` and add the header `Authorization: Bearer <key>` under **Advanced settings → Request headers**.
+**Claude** (any plan, including Free): **Settings** → **Connectors** → **Add custom connector** → name `Orion Notion`, paste the link → **Add**.
+Claude Free allows one custom connector, which is enough.
+
+**Codex:**
+```bash
+codex mcp add orion-notion --url "https://orion-notion-mcp.<account>.workers.dev/mcp/<team-key>"
+```
+
+**Cursor / VS Code / any MCP client** that supports remote (Streamable HTTP) servers: add the link as a remote MCP server.
+
+Then try: *"What are Team 2's open tasks?"*
+
+**Rotating the link** (if it leaks or someone leaves): run `npm run team-key`, upload the new key with `npx wrangler secret put TEAM_KEY`, and share the new link. The old one stops working immediately.
 
 ---
 
@@ -110,13 +125,14 @@ You'll get a URL like `https://orion-notion-mcp.<account>.workers.dev`. Opening 
 
 ## Workspace map
 
-`src/workspace.ts` describes the workspace (databases, columns and exact option names). Claude receives it on every connection so it doesn't have to rediscover the structure. **If you add or rename a database, update that file and run `npm run deploy`.**
+`notion_workspace_guide` builds the map live from Notion: the page tree under the season page, and every database with its columns and exact option names. New or renamed databases, columns and options show up automatically (cached for 10 minutes; ask Claude to refresh it right after a change).
+Only the team conventions in `src/workspace.ts` (e.g. "new team-wide work goes to Missions") are written by hand.
 
 ## Action log
 
 Every change made through the server shows up in Notion as "Orion Claude". To see who asked for what, the server writes a row to the **Claude Log** database (already created under the season page; its ID is set in `wrangler.toml`). If you recreate it, it needs the columns `Action` (Title), `Member` (Text), `Page` (URL) and `Details` (Text); then update `LOG_DATA_SOURCE_ID`.
 
-## Managing members
+## Managing personal keys (optional)
 
 - **Add someone** without changing existing keys:
   ```bash
@@ -134,7 +150,7 @@ Keep `members.json` with whoever runs the server. It's gitignored on purpose.
 
 ```bash
 npm run typecheck   # type check
-npm test            # 25 tests: mocked Notion API + the official MCP client
+npm test            # 27 tests: mocked Notion API + the official MCP client
 npm run dev         # run locally (needs .dev.vars with NOTION_TOKEN and MEMBERS)
 ```
 

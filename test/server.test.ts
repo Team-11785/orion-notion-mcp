@@ -49,6 +49,9 @@ function fakeNotion(method: string, path: string, body: any): [number, any] {
     ], has_more: false }];
   }
   if (method === "POST" && path === "/search") {
+    if (body?.filter?.value === "data_source") {
+      return [200, { results: [{ object: "data_source", id: DS, title: rt("Missions"), parent: { database_id: DB }, properties: schema }], has_more: false }];
+    }
     return [200, { results: [page(PAGE, "Home", { type: "page_id" })], has_more: false }];
   }
   let r;
@@ -74,7 +77,12 @@ function fakeNotion(method: string, path: string, body: any): [number, any] {
     return [404, { code: "object_not_found", message: "Could not find database" }];
   }
   if ((r = m(/^\/pages\/([^/]+)\/markdown$/))) {
-    if (method === "GET") return [200, { object: "page_markdown", id: r[1], markdown: "# Home\n\nWelcome Orion", truncated: false }];
+    if (method === "GET") {
+      const md = r[1].replace(/-/g, "") === PAGE.replace(/-/g, "")
+        ? '# Home\n\nWelcome Orion\n<database url="https://app.notion.com/p/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Tasks</database>\n<page url="https://app.notion.com/p/Team-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb">Team page</page>'
+        : "child page";
+      return [200, { object: "page_markdown", id: r[1], markdown: md, truncated: false }];
+    }
     return [200, { object: "page_markdown", id: r[1], markdown: "updated" }];
   }
   if ((r = m(/^\/pages\/([^/]+)\/move$/)) && method === "POST") {
@@ -112,6 +120,7 @@ const KEYS = { viewer: "viewer-key-aaaaaaaaaaaa", editor: "editor-key-bbbbbbbbbb
 const hash = (k: string) => createHash("sha256").update(k).digest("hex");
 const env = {
   NOTION_TOKEN: "ntn_test",
+  TEAM_KEY: "team-key-0123456789abcdef",
   ROOT_PAGE_ID: PAGE,
   LOG_DATA_SOURCE_ID: LOG_DS,
   MEMBERS: JSON.stringify({
@@ -359,11 +368,52 @@ test("upload from URL waits for import and appends an image block", async () => 
   assert.deepEqual(block.body.children[0].image.file_upload, { id: "fu-1" });
 });
 
-test("workspace guide is available to viewers and in instructions", async () => {
+test("workspace guide is built live from Notion", async () => {
+  const { clearWorkspaceMapCache } = await import("../src/workspace.js");
+  clearWorkspaceMapCache();
   const r = await call("viewer", "notion_workspace_guide", {});
-  assert.match(r.text, /Missions/);
+  assert.ok(!r.isError, r.text);
+  assert.match(r.text, /Missions \(database 22222222222222222222222222222222, data source 33333333/);
+  assert.match(r.text, /Status \(status: Not started \| In progress\)/);
+  assert.match(r.text, /🗂️ Tasks \(database aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\)/);
+  assert.match(r.text, /Team page \(page bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\)/);
+  assert.match(r.text, /Conventions/);
+
+  // Cached: a second call makes no Notion requests...
+  calls = [];
+  await call("viewer", "notion_workspace_guide", {});
+  assert.equal(calls.length, 0);
+  // ...unless refresh is asked for.
+  await call("viewer", "notion_workspace_guide", { refresh: true });
+  assert.ok(calls.length > 0);
+
   const init = await rpc("viewer", "initialize", { protocolVersion: "2025-06-18" });
-  assert.match(init.body.result.instructions, /Weekly Meetings/);
+  assert.match(init.body.result.instructions, /notion_workspace_guide/);
+});
+
+test("the shared team link works without personal keys", async () => {
+  const post = (url: string) =>
+    worker.fetch(
+      new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }) }),
+      { ...env, MEMBERS: undefined } as any,
+      exec,
+    );
+  const ok = await post("https://srv.example/mcp/team-key-0123456789abcdef?name=Itay");
+  assert.equal(ok.status, 200);
+  assert.match((await ok.json()).result.instructions, /Itay \(team link\).*editor/);
+  const anon = await post("https://srv.example/mcp/team-key-0123456789abcdef");
+  assert.match((await anon.json()).result.instructions, /Orion team/);
+  assert.equal((await post("https://srv.example/mcp/team-key-0123456789abcdeX")).status, 401);
+  assert.equal((await post("https://srv.example/mcp")).status, 401);
+});
+
+test("a too-short team key is ignored", async () => {
+  const res = await worker.fetch(
+    new Request("https://srv.example/mcp/shortkey12345678", { method: "POST", body: "{}" }),
+    { ...env, TEAM_KEY: "short", MEMBERS: undefined } as any,
+    exec,
+  );
+  assert.equal(res.status, 401);
 });
 
 test("normalizeId handles Notion URL shapes", () => {
