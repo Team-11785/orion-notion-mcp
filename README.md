@@ -1,148 +1,141 @@
-# Orion Notion MCP 🚀
+# Orion Notion MCP
 
-שרת קטן שמאפשר לכל חברי הקבוצה, גם אם הם **אורחים** ב-Notion, לעבוד עם Claude על ה-Notion של הקבוצה: לחפש, לקרוא, ליצור משימות, לעדכן סטטוסים, לסכם פגישות ועוד.
+A small remote [MCP](https://modelcontextprotocol.io) server that lets every team member use Claude with the team's Notion workspace, including people who are only **guests** in Notion.
 
 ```
-חבר קבוצה ← Claude שלו ← השרת הזה (Cloudflare) ← Notion API ← ה-workspace של אוריון
+team member → their Claude → this server (Cloudflare Workers) → Notion API → Orion workspace
 ```
 
-- **בחינם:** Cloudflare Workers ו-Notion API חינמיים, וכל אחד משתמש ב-Claude שלו.
-- **מפתח אישי לכל חבר**, עם שלוש רמות הרשאה: `viewer` (קריאה בלבד), `editor` (קריאה וכתיבה), `admin` (גם מחיקה).
-- **רואים מי עשה מה:** תגובות מופיעות עם שם החבר, ואפשר לנהל לוג פעולות במאגר ב-Notion.
+- **Free:** Cloudflare Workers and the Notion API cost nothing, and everyone uses their own Claude account.
+- **Personal key per member**, with three roles: `viewer` (read), `editor` (read + write), `admin` (also delete).
+- **Accountability:** comments show the member's name, and every write can be logged to a Notion database.
 
 ---
 
-## התקנה (פעם אחת, כ-20 דקות)
+## Setup (once, about 20 minutes)
 
-צריך: מחשב עם [Node.js](https://nodejs.org) גרסה 20 ומעלה, וחשבון חינמי ב-[Cloudflare](https://dash.cloudflare.com/sign-up).
+You need [Node.js](https://nodejs.org) 20+ and a free [Cloudflare](https://dash.cloudflare.com/sign-up) account.
 
-### 1. ליצור חיבור פנימי ב-Notion
-רק **בעלים של ה-workspace** יכולים לעשות את זה.
+### 1. Create an internal connection in Notion
+Only a **workspace owner** can do this.
 
-1. נכנסים ל-[Developer portal](https://app.notion.com/developers/connections) ← **Internal connections** ← **Create a new connection**.
-2. שם: `Orion Claude`. בוחרים את ה-workspace של הקבוצה.
-3. ב-**Capabilities** מסמנים: Read content, Update content, Insert content, Read comments, Insert comments, Read user information including email addresses.
-4. מעתיקים את ה-**API token** (מתחיל ב-`ntn_`). זו סיסמה, לא משתפים אותה.
+1. Open the [Developer portal](https://app.notion.com/developers/connections) → **Internal connections** → **Create a new connection**.
+2. Name it `Orion Claude` and pick the team workspace.
+3. Under **Capabilities**, enable: Read content, Update content, Insert content, Read comments, Insert comments, Read user information including email addresses.
+4. Copy the **API token** (starts with `ntn_`). Treat it like a password.
 
-### 2. לשתף את דף העונה עם החיבור
-פותחים את דף **2026-2027** ← `•••` למעלה מימין ← **Connections** ← **Add connection** ← `Orion Claude`.
-כל תתי-הדפים מקבלים גישה אוטומטית. דף שלא משותף עם החיבור, השרת לא יראה.
+### 2. Share the season page with the connection
+Open **2026-2027** → `•••` → **Connections** → **Add connection** → `Orion Claude`.
+All sub-pages inherit access. Anything not shared with the connection is invisible to the server.
 
-### 3. להתקין ולהתחבר ל-Cloudflare
-בטרמינל, מתוך התיקייה הזו:
+### 3. Install and log in to Cloudflare
 ```bash
 npm install
 npx wrangler login
 ```
 
-### 4. להגדיר את הסודות
+### 4. Set the secrets
 ```bash
 npx wrangler secret put NOTION_TOKEN
-# מדביקים את ה-token מהשלב הראשון
+# paste the token from step 1
 ```
 
-יוצרים מפתחות לחברים. כל חבר בפורמט `"שם:תפקיד"`:
+Generate member keys (`"Name:role"` for each person):
 ```bash
-npm run gen-key -- "Carmel:admin" "Itay:editor" "Noa:editor" "Guy:viewer"
+npm run gen-key -- "Carmel:admin" "Liran:admin" "Itay:editor" "Noa:viewer"
 npx wrangler secret put MEMBERS < members.json
 ```
-הסקריפט מדפיס **מפתח אישי** לכל אחד. שולחים לכל חבר רק את המפתח שלו, בהודעה פרטית. המפתחות עצמם לא נשמרים בשום מקום: בקובץ `members.json` יש רק גרסה מוצפנת (hash) שלהם.
+The script prints a **personal key** for each person. Send each one only their own key, privately. Keys are never stored: `members.json` only holds their SHA-256 hashes.
 
-### 5. להעלות לאוויר
+### 5. Deploy
 ```bash
 npm run deploy
 ```
-בסוף מופיעה כתובת כמו `https://orion-notion-mcp.<שם-החשבון>.workers.dev`. אם נכנסים אליה בדפדפן, צריכה להופיע ההודעה *"Orion Notion MCP server is running"*.
+You'll get a URL like `https://orion-notion-mcp.<account>.workers.dev`. Opening it in a browser should show *"Orion Notion MCP server is running"*.
 
 ---
 
-## חיבור ל-Claude (כל חבר בנפרד)
+## Connecting Claude (each member)
 
-1. ב-Claude: **Settings** ← **Connectors** ← **Add custom connector**.
-2. שם: `Orion Notion`.
-3. כתובת:
+1. In Claude: **Settings** → **Connectors** → **Add custom connector**.
+2. Name: `Orion Notion`.
+3. URL:
    ```
-   https://orion-notion-mcp.<שם-החשבון>.workers.dev/mcp/<המפתח-האישי>
+   https://orion-notion-mcp.<account>.workers.dev/mcp/<personal-key>
    ```
-4. **Add**, וזהו. אפשר לכתוב ל-Claude למשל: *"מה המשימות הפתוחות של צוות 2?"*
+4. **Add**. Then try: *"What are Team 2's open tasks?"*
 
-> במשתמשי Claude Free אפשר להוסיף **custom connector אחד** בלבד, וזה מספיק לשרת הזה.
-> מי שמעדיף לא לשים את המפתח בכתובת: אפשר להשתמש בכתובת `.../mcp`, ותחת **Advanced settings** ← **Request headers** להוסיף `Authorization: Bearer <המפתח>`.
+> Claude Free allows **one** custom connector, which is enough for this.
+> If you'd rather keep the key out of the URL, use `.../mcp` and add the header `Authorization: Bearer <key>` under **Advanced settings → Request headers**.
 
 ---
 
-## מה Claude יכול לעשות דרך השרת
+## Tools
 
-| כלי | מה הוא עושה | הרשאה |
+| Tool | What it does | Role |
 |---|---|---|
-| `notion_whoami` | מי אני ומה מותר לי | viewer |
-| `notion_search` | חיפוש דפים ומאגרים | viewer |
-| `notion_fetch` | קריאת דף (כולל כל התוכן), מאגר או סכמה | viewer |
-| `notion_query_data_source` | שורות ממאגר, עם סינון ומיון | viewer |
-| `notion_list_views` | תצוגות של מאגר | viewer |
-| `notion_get_comments` | קריאת תגובות | viewer |
-| `notion_get_users` | רשימת אנשים | viewer |
-| `notion_create_pages` | יצירת דפים ושורות (עד 20 בפעם) | editor |
-| `notion_update_page` | עדכון מאפיינים, אייקון ותוכן | editor |
-| `notion_move_page` | העברת דף | editor |
-| `notion_create_database` | יצירת מאגר חדש | editor |
-| `notion_update_data_source` | הוספה ושינוי של עמודות | editor |
-| `notion_create_view` / `notion_update_view` | תצוגות (טבלה, לוח, לוח שנה...) | editor |
-| `notion_create_comment` | תגובה, עם שם החבר | editor |
-| `notion_trash_page` / `notion_restore_page` | העברה לפח ושחזור | admin |
-| `notion_delete_view` | מחיקת תצוגה | admin |
-| `notion_api_request` | גישה ישירה לכל ה-Notion API | admin |
-| `notion_workspace_guide` | מפה של ה-workspace: מאגרים, עמודות ואפשרויות | viewer |
-| `notion_get_recent_changes` | מה השתנה לאחרונה | viewer |
-| `notion_get_block_children` | רשימת הבלוקים בדף | viewer |
-| `notion_get_page_property` | ערכים מלאים של relation או people ארוכים | viewer |
-| `notion_list_templates` | התבניות של מאגר | viewer |
-| `notion_query_meeting_notes` | סיכומי פגישות של Notion AI | viewer |
-| `notion_duplicate_page` | שכפול דף או שורה | editor |
-| `notion_upload_file_from_url` | הוספת תמונה או קובץ מקישור | editor |
-| `notion_update_block` | עריכת בלוק בודד (למשל סימון V) | editor |
-| `notion_update_comment` / `notion_delete_comment` | עריכה ומחיקה של תגובות שנכתבו דרך השרת | editor |
-| `notion_delete_block` | מחיקת בלוק | admin |
+| `notion_whoami` | Who am I and what can I do | viewer |
+| `notion_workspace_guide` | Map of the workspace: databases, columns, option names | viewer |
+| `notion_search` | Search pages and databases | viewer |
+| `notion_fetch` | Read a page (full content), a database or a schema | viewer |
+| `notion_query_data_source` | Database rows with filters and sorts | viewer |
+| `notion_get_recent_changes` | What changed recently | viewer |
+| `notion_list_views` | Views of a database | viewer |
+| `notion_get_comments` | Read comments | viewer |
+| `notion_get_users` | List people | viewer |
+| `notion_get_block_children` | List the blocks in a page | viewer |
+| `notion_get_page_property` | Full values of long relation/people properties | viewer |
+| `notion_list_templates` | Templates of a database | viewer |
+| `notion_query_meeting_notes` | Notion AI meeting notes | viewer |
+| `notion_create_pages` | Create pages and rows (up to 20 at once) | editor |
+| `notion_update_page` | Update properties, icon and content | editor |
+| `notion_duplicate_page` | Copy a page or row | editor |
+| `notion_move_page` | Move a page | editor |
+| `notion_upload_file_from_url` | Add an image or file from a link | editor |
+| `notion_update_block` | Edit a single block (e.g. tick a to-do) | editor |
+| `notion_create_database` | Create a database | editor |
+| `notion_update_data_source` | Add or change columns | editor |
+| `notion_create_view` / `notion_update_view` | Table, board, calendar… views | editor |
+| `notion_create_comment` | Comment, signed with the member's name | editor |
+| `notion_update_comment` / `notion_delete_comment` | Edit/delete comments written through the server | editor |
+| `notion_trash_page` / `notion_restore_page` | Trash and restore | admin |
+| `notion_delete_view` / `notion_delete_block` | Delete a view or block | admin |
+| `notion_api_request` | Direct access to any Notion API endpoint | admin |
 
-**עריכה מוגנת:** editor לא יכול למחוק תתי-דפים או מאגרים מתוך דף, ולא יכול למחוק עמודות. את אלה רק admin יכול לעשות.
+**Guard rails:** editors can't remove child pages or databases from a page, and can't delete columns. Only admins can.
 
-**מה לא אפשרי דרך ה-API של Notion:** לוח השנה של Notion, Notion Agents ו-AI, היסטוריית גרסאות ושחזור גרסה, ומועדפים וסרגל צד. שכפול דף עובד, אבל תתי-דפים ומאגרים שבתוכו הופכים לקישורים ולא משוכפלים.
-
----
-
-## מפת ה-workspace
-
-ב-`src/workspace.ts` יש מפה של ה-workspace: המאגרים, העמודות ושמות האפשרויות המדויקים. Claude מקבל אותה בכל חיבור, כדי שלא יצטרך לחפש כל פעם מחדש. **אם מוסיפים או משנים מאגר, צריך לעדכן את הקובץ ולהריץ `npm run deploy`.**
+**Not possible through the Notion API:** Notion Calendar, Notion Agents/AI, version history, favorites and the sidebar. Duplicating works, but sub-pages and databases inside the copied page become links instead of copies.
 
 ---
 
-## לוג פעולות (אופציונלי, מומלץ)
+## Workspace map
 
-ב-Notion כל שינוי שהשרת עושה מופיע כאילו "Orion Claude" ביצע אותו. כדי לדעת מי ביקש מה:
+`src/workspace.ts` describes the workspace (databases, columns and exact option names). Claude receives it on every connection so it doesn't have to rediscover the structure. **If you add or rename a database, update that file and run `npm run deploy`.**
 
-המאגר **Claude Log** כבר קיים בתוך דף העונה, והמזהה שלו כבר מוגדר ב-`wrangler.toml`. אם יוצרים אותו מחדש, צריך עמודות `Action` (Title), `Member` (Text), `Page` (URL) ו-`Details` (Text), ולעדכן את `LOG_DATA_SOURCE_ID`.
+## Action log
 
----
+Every change made through the server shows up in Notion as "Orion Claude". To see who asked for what, the server writes a row to the **Claude Log** database (already created under the season page; its ID is set in `wrangler.toml`). If you recreate it, it needs the columns `Action` (Title), `Member` (Text), `Page` (URL) and `Details` (Text); then update `LOG_DATA_SOURCE_ID`.
 
-## ניהול חברים
+## Managing members
 
-- **להוסיף חבר** בלי לשנות את המפתחות של כולם:
+- **Add someone** without changing existing keys:
   ```bash
   npm run gen-key -- --existing members.json "NewName:editor"
   npx wrangler secret put MEMBERS < members.json
   ```
-- **להסיר חבר:** מוחקים את השורה שלו ב-`members.json` (לפי השם) ומעלים שוב עם `wrangler secret put`.
-- **מפתח שדלף:** מסירים את החבר ומוסיפים אותו שוב, כדי שיקבל מפתח חדש.
+- **Remove someone:** delete their entry from `members.json` and upload it again.
+- **Leaked key:** remove the member and add them again to issue a new key.
 
-שומרים את `members.json` אצל מנהל המערכת. הוא לא סודי כמו ה-token, אבל בלעדיו קשה לנהל את החברים.
+Keep `members.json` with whoever runs the server. It's gitignored on purpose.
 
 ---
 
-## פיתוח ובדיקות
+## Development
+
 ```bash
-npm run typecheck   # בדיקת טיפוסים
-npm test            # 25 בדיקות: Notion API מדומה + חיבור עם ה-MCP client הרשמי
-npm run dev         # הרצה מקומית (צריך קובץ .dev.vars עם NOTION_TOKEN ו-MEMBERS)
+npm run typecheck   # type check
+npm test            # 25 tests: mocked Notion API + the official MCP client
+npm run dev         # run locally (needs .dev.vars with NOTION_TOKEN and MEMBERS)
 ```
 
-**מגבלת קצב:** Notion מאפשר כ-3 בקשות בשנייה לחיבור, משותף לכל הקבוצה. השרת מחכה ומנסה שוב אוטומטית כשמגיעים למגבלה.
+**Rate limit:** Notion allows about 3 requests per second per connection, shared by the whole team. The server backs off and retries automatically.
